@@ -20,6 +20,9 @@ Schema consequences are in [`04-schema-delta.md`](04-schema-delta.md).
 | [D5](#d5--full-export-trade-canonical-model) | Full export-trade canonical model | Accepted |
 | [D6](#d6--cross-currency-pricing-via-a-normalized-base-price) | Cross-currency pricing via a normalized base price | Accepted |
 | [D7](#d7--phase-0-blocker-tables-now-the-rest-at-their-phase) | Phase 0 blocker tables now, the rest at their phase | Accepted |
+| [D8](#d8--typescript-on-the-frontend) | TypeScript on the frontend (**amends §4**) | Accepted |
+| [D9](#d9--ant-design-as-the-component-library) | Ant Design as the component library | Accepted |
+| [D10](#d10--phase-0-is-backend-only-swagger-is-the-test-surface) | Phase 0 is backend-only; Swagger is the test surface | Accepted |
 
 ---
 
@@ -308,11 +311,134 @@ the rest to their own phase, added via migrations.
 
 ---
 
+## D8 — TypeScript on the frontend
+
+### Problem
+
+Master prompt §4 specifies "Frontend: JavaScript, React, Vite". For a codebase of this size that
+is worth a second look, and converting later is expensive.
+
+The canonical vehicle model alone carries roughly thirty fields and six enumerations
+([`03-canonical-vehicle-model.md`](03-canonical-vehicle-model.md)). Add tenant context,
+permission checks and the API contracts for every entity, and the number of places where a
+frontend/backend mismatch can hide is large.
+
+### Decision
+
+**Use TypeScript.** This is a deliberate amendment to master prompt §4.
+
+### Why
+
+- Master prompt §3 already requires OpenAPI/Swagger. Types can be **generated from that spec**, so
+  frontend and backend contracts stay in sync automatically rather than by discipline.
+- Enum-heavy domain code is where untyped JavaScript fails quietly: `SteeringSide` and
+  `PriceType` are `tinyint` on the wire, and confusing them is a silent bug rather than a crash.
+- Cheap now, expensive later. Nothing has been written yet.
+
+### Cost accepted
+
+- Slightly higher barrier for contributors not fluent in TypeScript.
+- A build step for type generation, wired into the frontend build.
+
+### Rejected
+
+- **Plain JavaScript as §4 specifies.** Follows the signed-off spec exactly with no amendment,
+  but pushes contract mismatches from build time to runtime.
+
+---
+
+## D9 — Ant Design as the component library
+
+### Problem
+
+Master prompt §4 names React and Vite but no component library. The product is data-dense —
+inventory grids, faceted search, CRM records, a unified inbox, dashboards — so table and form
+quality matters more than visual novelty.
+
+### Decision
+
+**Ant Design.**
+
+### Why
+
+- Built for exactly this class of enterprise CRM/admin product; its tables, filters and forms
+  cover the vehicle grid and CRM screens without assembly.
+- Strong RTL and i18n support, which matters given §9 stores `PreferredLanguage` and the buyer
+  base spans multiple countries and scripts. Retrofitting RTL is painful.
+- MIT licensed with no paid tier — unlike MUI, whose X DataGrid puts virtualization, column
+  pinning and aggregation behind a commercial licence. The vehicle grid needs those.
+
+### Cost accepted
+
+- A distinctive default look that takes deliberate effort to restyle if strong brand identity is
+  wanted later.
+
+### Rejected
+
+- **Mantine.** Excellent DX and more visually neutral, so easier to brand — but less
+  batteries-included for complex enterprise tables.
+- **MUI.** Largest ecosystem and hiring pool, but the components this product actually needs are
+  behind the commercial tier. Same class of licensing trap as the Hangfire note in §4
+  ([O14](05-open-items.md#o14--background-job-library-licensing)).
+- **Tailwind + headless components.** Maximum control and smallest runtime, but tables, forms,
+  modals and date pickers are all assembled by hand before the first screen ships.
+
+---
+
+## D10 — Phase 0 is backend-only; Swagger is the test surface
+
+### Problem
+
+Phase 0 will be tested and signed off before Phase 0.5 begins. Almost everything §3 lists for
+Phase 0 is backend, but a few features — login, tenant switching, role administration — are
+user-facing, raising the question of whether Phase 0 needs a UI to be verifiable.
+
+### Decision
+
+**No frontend in Phase 0.** The React/Vite application is scaffolded at Phase 0.5, alongside
+§17's first vertical slice. Phase 0 is verified through the OpenAPI/Swagger page and the
+automated test suite.
+
+D8 and D9 still apply — they are settled now so that the first React code written at Phase 0.5
+is written once, not rewritten.
+
+### Why
+
+- OpenAPI/Swagger is already a Phase 0 deliverable in §3, so the test surface exists without
+  extra work.
+- Keeps Phase 0 tightly scoped to the foundation, which is what the phase is for.
+- Master prompt §17 puts the first screen at the Carapis slice. Building UI earlier would
+  contradict the spec's own sequencing.
+
+### Cost accepted
+
+- **Verifying multi-tenancy means reading JSON, not clicking through a product.** This raises the
+  bar on two things, both now mandatory rather than nice to have:
+  1. The seed strategy §3 requires must create **at least two tenants** with users, roles and
+     overlapping membership, so cross-tenant isolation can be exercised by hand through Swagger.
+  2. The isolation tests in
+     [`04-schema-delta.md`](04-schema-delta.md#14-query-filter-and-isolation-tests) are the
+     primary evidence of correctness, since no human will see tenant leakage in a UI.
+- Acceptance criteria must be explicit, because "it looks right" is not available as a check.
+  See [`06-phase-0-acceptance.md`](06-phase-0-acceptance.md).
+
+### Rejected
+
+- **Thin shell** (login, tenant switch, admin screens). Would let multi-tenancy and RBAC be
+  verified in a browser, but adds frontend work to a phase whose purpose is the foundation.
+- **Thin shell plus dashboard skeleton.** Same, with an earlier read on the overall look.
+
+---
+
 ## Not decided
 
 The following were identified during review and are **not** resolved. They do not block Phase 0.
 Each is tracked in [`05-open-items.md`](05-open-items.md) with an owner slot: media
 redistribution rights, the Carapis licensing gate, PII/data-protection obligations, PII redaction
 before AI calls, billing and quota enforcement, observability and alerting, the WhatsApp
-24-hour messaging window, `PublicId` coverage, Phase 0 acceptance criteria, and saved-search
-alerting.
+24-hour messaging window, `PublicId` coverage, destination import-eligibility rules,
+saved-search alerting, environments/backup/DR, tenant settings and retention configuration, and
+background job library licensing.
+
+Phase 0 acceptance criteria were previously open and are now closed by
+[`06-phase-0-acceptance.md`](06-phase-0-acceptance.md).

@@ -17,7 +17,7 @@ needs a named owner and a date — an item with neither is not tracked, it is fo
 | [O6](#o6--observability-and-alerting) | Observability and alerting | Eng | Production | _unassigned_ | _unset_ |
 | [O7](#o7--whatsapp-24-hour-messaging-window) | WhatsApp 24-hour window | Eng | Phase 1 messaging | _unassigned_ | _unset_ |
 | [O8](#o8--publicid-coverage) | `PublicId` coverage | Eng | Phase 1 API | _unassigned_ | _unset_ |
-| [O9](#o9--phase-0-acceptance-criteria) | Phase 0 acceptance criteria | Product | Phase 0 sign-off | _unassigned_ | _unset_ |
+| ~~O9~~ | ~~Phase 0 acceptance criteria~~ | Product | — | **Closed** | see [`06-`](06-phase-0-acceptance.md) |
 | [O10](#o10--destination-import-eligibility-rules) | Destination import-eligibility rules | Product/Legal | Phase 1 hard filters | _unassigned_ | _unset_ |
 | [O11](#o11--saved-search-alerting) | Saved-search alerting | Product | — (scope gap) | _unassigned_ | _unset_ |
 | [O12](#o12--environments-backup-and-dr) | Environments, backup and DR | Eng | Production | _unassigned_ | _unset_ |
@@ -144,19 +144,17 @@ answer is defensible.
 
 ## O9 — Phase 0 acceptance criteria
 
-Master prompt §8 gives excellent, testable acceptance criteria for the Carapis POC. Phase 0 — the
-larger and earlier deliverable — has none. There is no testable definition of "foundation
-complete."
+**Closed.** Resolved by [`06-phase-0-acceptance.md`](06-phase-0-acceptance.md), which gives a §8
+equivalent for Phase 0: sections A–K plus a required seed fixture, every item verifiable through
+Swagger, a shell command or the test suite.
 
-**Needed:** a §8-equivalent checklist for Phase 0. Candidates drawn from the existing text:
-migrations run from empty and from previous version (schema §12); cross-tenant read/write blocked
-by automated test (schema §9, extended per
-[`04-schema-delta.md`](04-schema-delta.md#14-query-filter-and-isolation-tests)); token revocation
-works end to end (§14); health checks green; OpenAPI published; structured logs carry
-tenant/user/correlation context (§4); secrets absent from config and logs (§14, §16).
+Raised in priority by [D10](02-decisions.md#d10--phase-0-is-backend-only-swagger-is-the-test-surface):
+with no frontend in Phase 0, an explicit checklist is the only way to establish that the
+foundation is complete.
 
-Also unstated: test coverage expectations, and whether any end-to-end test is required despite
-§16's "write tests with each major module."
+Test coverage expectations remain deliberately unquantified — §J requires that specific
+high-risk behaviors are tested by name (isolation, token rotation, permission enforcement,
+the assignment guard) rather than that a coverage percentage is hit.
 
 ## O10 — Destination import-eligibility rules
 
