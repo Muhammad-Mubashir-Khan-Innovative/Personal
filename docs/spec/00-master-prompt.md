@@ -99,10 +99,10 @@ USP: connect a dealer's existing vehicle sources into one intelligent workspace.
 
 | Concern | Choice |
 | --- | --- |
-| Frontend | JavaScript, React, Vite |
-| Backend | ASP.NET Core 8 Web API, C# |
+| Frontend | JavaScript, React, Vite — **amended to TypeScript by [D8](02-decisions.md#d8--typescript-on-the-frontend)**, component library chosen in [D9](02-decisions.md#d9--ant-design-as-the-component-library) |
+| Backend | ASP.NET Core 8 Web API, C# — **amended to .NET 10 by [D11](02-decisions.md#d11--net-10-not-net-8)** |
 | Database | Microsoft SQL Server |
-| ORM | Entity Framework Core 8 with migrations |
+| ORM | Entity Framework Core 8 with migrations — **amended to EF Core 10 by [D11](02-decisions.md#d11--net-10-not-net-8)** |
 | Cache | Redis abstraction; safe in-memory fallback only for development |
 | Background jobs | Hangfire or equivalent durable job system behind a replaceable abstraction |
 | Validation | FluentValidation or equivalent |

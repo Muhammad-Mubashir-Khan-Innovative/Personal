@@ -1,20 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.*" />
 
     <!-- PasswordHasher: PBKDF2-HMAC-SHA512, iteration count configurable. Criterion D1. -->
-    <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="10.0.*" />
 
-    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.*" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.*" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.*" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.*" />
-    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.*" />
 
     <PackageReference Include="Hangfire.Core" Version="1.8.*" />
     <PackageReference Include="Hangfire.SqlServer" Version="1.8.*" />
+
+    <!--
+      Hangfire.SqlServer drags in Newtonsoft.Json 11.0.1 transitively, which carries a known
+      high-severity advisory (GHSA-5crp-9r3c-p9vr). This direct reference pins a patched
+      version and wins over the transitive one. Remove it only once Hangfire's own floor
+      moves past 13.0.1.
+    -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.*" />
 
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.*" />
   </ItemGroup>

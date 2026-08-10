@@ -23,6 +23,7 @@ Schema consequences are in [`04-schema-delta.md`](04-schema-delta.md).
 | [D8](#d8--typescript-on-the-frontend) | TypeScript on the frontend (**amends §4**) | Accepted |
 | [D9](#d9--ant-design-as-the-component-library) | Ant Design as the component library | Accepted |
 | [D10](#d10--phase-0-is-backend-only-swagger-is-the-test-surface) | Phase 0 is backend-only; Swagger is the test surface | Accepted |
+| [D11](#d11--net-10-not-net-8) | .NET 10, not .NET 8 (**amends §4**) | Accepted |
 
 ---
 
@@ -427,6 +428,61 @@ is written once, not rewritten.
 - **Thin shell** (login, tenant switch, admin screens). Would let multi-tenancy and RBAC be
   verified in a browser, but adds frontend work to a phase whose purpose is the foundation.
 - **Thin shell plus dashboard skeleton.** Same, with an earlier read on the overall look.
+
+---
+
+## D11 — .NET 10, not .NET 8
+
+### Problem
+
+Master prompt §4 specifies "ASP.NET Core 8 Web API" and "Entity Framework Core 8 with
+migrations". Phase 0 was built on .NET 8 as specified.
+
+**.NET 8 reaches end of support in November 2026** — roughly three months after Phase 0 was
+written. Building a platform intended to run for years on a runtime that stops receiving
+security patches almost immediately is a poor starting position, and the cost of moving rises
+with every phase: at Phase 0 it is a target-framework bump plus package versions, with no
+business logic to revalidate.
+
+### Decision
+
+**Target .NET 10 and EF Core 10.** This is a deliberate amendment to master prompt §4, taken
+before Phase 0.5 begins.
+
+### Why
+
+- .NET 10 is LTS, supported into November 2028, against .NET 8's November 2026.
+- Cheapest possible moment: Phase 0 is foundation only, and the entire test suite exists to
+  prove the move did not break anything.
+- The EF Core 8 migration required **no changes** — `has-pending-model-changes` reports the
+  model and the migration still agree, so there was no schema drift to reconcile.
+
+### Cost accepted
+
+- Requires the .NET 10 SDK locally and in CI. Both are updated.
+- Serilog, Swashbuckle and the HealthChecks packages moved a major version alongside it.
+  `Asp.Versioning` and Hangfire needed no change.
+
+### Verification
+
+The full suite (41 tests) and all 29 live acceptance checks pass on .NET 10, run twice.
+Integration tests got roughly 40% faster. The Production-refuses-without-Redis guard and the
+no-secrets-in-logs check were re-verified explicitly.
+
+### Incidental finding
+
+The .NET 10 SDK's NuGet audit surfaced that **Hangfire.SqlServer pulls in Newtonsoft.Json
+11.0.1 transitively, which carries a known high-severity advisory**
+(GHSA-5crp-9r3c-p9vr). It was present on .NET 8 too and simply went unreported. Both projects
+that reference Hangfire now pin Newtonsoft.Json 13.x directly, which wins over the transitive
+reference. The pin can be removed once Hangfire's own floor moves past 13.0.1.
+
+### Rejected
+
+- **Stay on .NET 8 as §4 specifies.** Follows the signed-off spec exactly, but knowingly ships
+  onto a runtime that leaves support within months.
+- **Defer the move to a later phase.** Same end state, strictly more work: every phase adds
+  code that the upgrade must then be revalidated against.
 
 ---
 

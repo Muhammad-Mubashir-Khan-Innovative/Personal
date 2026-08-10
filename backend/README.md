@@ -3,6 +3,9 @@
 Foundation for the multi-tenant dealer platform: tenancy, authentication, authorization,
 auditing, and the infrastructure abstractions the later phases build on.
 
+Built on **.NET 10 / EF Core 10** — see [decision D11](../docs/spec/02-decisions.md#d11--net-10-not-net-8),
+which amends the master prompt's .NET 8 choice because .NET 8 leaves support in November 2026.
+
 **Phase 0 ships no frontend.** Under [decision D10](../docs/spec/02-decisions.md#d10--phase-0-is-backend-only-swagger-is-the-test-surface)
 the OpenAPI page and the test suite are the verification surface. The React application
 arrives in Phase 0.5 with the first vertical slice.
@@ -14,7 +17,7 @@ against is [`06-phase-0-acceptance.md`](../docs/spec/06-phase-0-acceptance.md).
 
 ## Prerequisites
 
-- .NET SDK 8.0
+- .NET SDK 10.0
 - Docker (for SQL Server and Redis)
 
 ## First run

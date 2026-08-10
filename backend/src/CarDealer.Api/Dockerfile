@@ -1,5 +1,5 @@
 # Build context is the backend/ directory (see docker-compose.yml).
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy project files first so restore is cached independently of source changes.
@@ -15,7 +15,7 @@ RUN dotnet restore src/CarDealer.Api/CarDealer.Api.csproj
 COPY src/ src/
 RUN dotnet publish src/CarDealer.Api/CarDealer.Api.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Run as the non-root user the base image provides.

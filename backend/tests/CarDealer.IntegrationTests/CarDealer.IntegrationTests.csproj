@@ -17,8 +17,8 @@
       provider. The in-memory provider does not enforce unique indexes, filtered
       indexes or computed columns, all of which Phase 0 depends on.
     -->
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.*" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,5 @@
 # Build context is the backend/ directory (see docker-compose.yml).
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props ./
@@ -14,7 +14,7 @@ RUN dotnet restore src/CarDealer.Worker/CarDealer.Worker.csproj
 COPY src/ src/
 RUN dotnet publish src/CarDealer.Worker/CarDealer.Worker.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/runtime:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
 WORKDIR /app
 
 USER $APP_UID

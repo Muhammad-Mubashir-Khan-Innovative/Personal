@@ -215,6 +215,10 @@ users must be impossible in a Production environment.
 Recorded when Phase 0 was implemented. This is the developer's own run, not the sign-off —
 the sign-off below is yours.
 
+Re-run in full after the move to .NET 10
+([D11](02-decisions.md#d11--net-10-not-net-8)): 41 tests and all 29 live checks pass on
+`net10.0`, with the EF Core 8 migration requiring no changes.
+
 **Verified automatically.** 41 tests pass (13 unit, 28 integration) across three consecutive
 runs, against a real SQL Server. The integration suite covers C2–C8, D2–D8, E1–E6, F4, G4 and
 the correlation-id handling. Migrations apply to an empty database on every test run (B1), the
