@@ -1,0 +1,73 @@
+name: Backend CI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        # Integration tests run against a real SQL Server: the in-memory provider does not
+        # enforce the unique indexes, filtered indexes and computed columns Phase 0 relies on
+        # (acceptance criterion J5).
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Dev_L0cal_Pass!2024"
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Dev_L0cal_Pass!2024' -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 30s
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+      CARDEALER_TEST_SQL_HOST: "localhost,1433"
+      CARDEALER_TEST_SQL_PASSWORD: "Dev_L0cal_Pass!2024"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        # Directory.Build.props sets TreatWarningsAsErrors, so a warning fails the build
+        # (acceptance criterion A1).
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+      - name: Verify migrations match the model
+        # Catches an entity change committed without its migration - which would otherwise
+        # only surface as a runtime failure on the next deployment.
+        run: |
+          dotnet tool install --global dotnet-ef --version "8.*"
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef migrations has-pending-model-changes \
+            --project src/CarDealer.Infrastructure \
+            --startup-project src/CarDealer.Api

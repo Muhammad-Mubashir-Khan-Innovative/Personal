@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!--
+      Criterion J5: integration tests run against a real SQL Server, not an in-memory
+      provider. The in-memory provider does not enforce unique indexes, filtered
+      indexes or computed columns, all of which Phase 0 depends on.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CarDealer.Api\CarDealer.Api.csproj" />
+    <ProjectReference Include="..\..\src\CarDealer.Application\CarDealer.Application.csproj" />
+    <ProjectReference Include="..\..\src\CarDealer.Domain\CarDealer.Domain.csproj" />
+    <ProjectReference Include="..\..\src\CarDealer.Infrastructure\CarDealer.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

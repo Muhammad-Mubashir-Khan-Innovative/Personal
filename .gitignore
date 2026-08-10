@@ -1,0 +1,21 @@
+# Build output
+**/bin/
+**/obj/
+**/publish/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Local runtime artifacts
+backend/**/storage/
+*.log
+
+# Secrets - never commit (master prompt section 16, acceptance criterion I1)
+appsettings.*.local.json
+.env
+.env.*
+!.env.example

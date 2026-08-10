@@ -1,0 +1,81 @@
+name: cardealer
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: cardealer-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Dev_L0cal_Pass!2024}"
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      # The API waits for this before migrating; without it the first start races
+      # SQL Server's own initialisation and fails on a cold volume.
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: cardealer-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: src/CarDealer.Api/Dockerfile
+    container_name: cardealer-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=CarDealer;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Dev_L0cal_Pass!2024};TrustServerCertificate=True;Encrypt=False"
+      ConnectionStrings__Redis: "redis:6379"
+      # Local-only value. Any non-development environment must supply this from a secret
+      # store - see docs/spec/06-phase-0-acceptance.md criterion I1.
+      Jwt__SigningKey: "${JWT_SIGNING_KEY:-local-development-signing-key-not-for-any-other-environment}"
+    ports:
+      - "5080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/CarDealer.Worker/Dockerfile
+    container_name: cardealer-worker
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=CarDealer;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Dev_L0cal_Pass!2024};TrustServerCertificate=True;Encrypt=False"
+      ConnectionStrings__Redis: "redis:6379"
+      Jwt__SigningKey: "${JWT_SIGNING_KEY:-local-development-signing-key-not-for-any-other-environment}"
+
+volumes:
+  sqldata:

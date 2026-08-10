@@ -210,6 +210,35 @@ users must be impossible in a Production environment.
 
 ---
 
+## Verification status
+
+Recorded when Phase 0 was implemented. This is the developer's own run, not the sign-off —
+the sign-off below is yours.
+
+**Verified automatically.** 41 tests pass (13 unit, 28 integration) across three consecutive
+runs, against a real SQL Server. The integration suite covers C2–C8, D2–D8, E1–E6, F4, G4 and
+the correlation-id handling. Migrations apply to an empty database on every test run (B1), the
+seed is idempotent across restarts (B5), Production refuses to start without Redis (H2), the
+OpenAPI document exposes 13 operations all carrying responses and a Bearer scheme (F7), and no
+password, connection string, signing key or refresh token appears in any log (G6).
+
+**Two items could not be fully verified in the development environment**, and both need
+checking on your machine:
+
+1. **B2 — migration from the previous version.** Only one migration exists, so there is no
+   previous version to migrate from. This becomes testable at the first schema change; CI
+   already guards the related risk by failing when the model and migrations disagree.
+2. **The Redis-backed cache path.** The Redis image could not be pulled here (blocked at the
+   Docker Hub CDN), so `DistributedCacheService` ran only in the in-memory configuration.
+   H1 and H2 are verified — the abstraction round-trips and Production refuses to boot without
+   Redis — but the Redis implementation itself has not executed. `docker compose up` should
+   exercise it; confirm `/api/v1/diagnostics/cache-roundtrip` reports
+   `"implementation": "DistributedCacheService"`.
+
+Items resting on judgement rather than a test — H6 (no vendor SDK in Application or Domain),
+I5 (no concatenated SQL), G1 (structured logging) — were checked by reading the code, and the
+project files enforce H6 structurally: `CarDealer.Domain` declares no package references at all.
+
 ## Sign-off
 
 Phase 0 is accepted when A–K and S all pass. Record the date and who verified it, then Phase 0.5

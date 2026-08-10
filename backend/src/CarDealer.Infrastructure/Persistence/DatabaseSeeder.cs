@@ -1,0 +1,311 @@
+using CarDealer.Application.Abstractions;
+using CarDealer.Domain.Entities;
+using CarDealer.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace CarDealer.Infrastructure.Persistence;
+
+/// <summary>
+/// Deterministic seed data (SQL schema spec section 12).
+/// </summary>
+/// <remarks>
+/// Under decision D10 Phase 0 ships no UI, so this fixture is the only way to exercise
+/// multi-tenancy by hand through Swagger. That makes it a deliverable in its own right
+/// rather than a convenience - see docs/spec/06-phase-0-acceptance.md section S.
+///
+/// Idempotent: re-running must not duplicate rows (criterion B5).
+/// </remarks>
+public sealed class DatabaseSeeder
+{
+    // Fixed GUIDs keep the seed deterministic across runs and machines.
+    private static readonly Guid NihonPublicId = new("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid KarachiPublicId = new("22222222-2222-2222-2222-222222222222");
+
+    public const string NihonSlug = "nihon-motors";
+    public const string KarachiSlug = "karachi-auto";
+
+    private readonly CarDealerDbContext _db;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IDateTimeProvider _clock;
+    private readonly ILogger<DatabaseSeeder> _logger;
+
+    public DatabaseSeeder(
+        CarDealerDbContext db,
+        IPasswordHasher passwordHasher,
+        IDateTimeProvider clock,
+        ILogger<DatabaseSeeder> logger)
+    {
+        _db = db;
+        _passwordHasher = passwordHasher;
+        _clock = clock;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Seeds reference data and, when <paramref name="includeDevelopmentUsers"/> is true, the
+    /// local test fixture.
+    /// </summary>
+    /// <remarks>
+    /// Development users must never be created in Production (criterion S). The caller
+    /// passes false there; the guard lives at the call site in Program.cs so that this class
+    /// stays usable from tests.
+    /// </remarks>
+    public async Task SeedAsync(bool includeDevelopmentUsers, CancellationToken ct = default)
+    {
+        await SeedPermissionsAsync(ct).ConfigureAwait(false);
+        await SeedSystemRolesAsync(ct).ConfigureAwait(false);
+
+        if (includeDevelopmentUsers)
+        {
+            await SeedDevelopmentFixtureAsync(ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task SeedPermissionsAsync(CancellationToken ct)
+    {
+        var existing = await _db.Permissions
+            .Select(p => p.Code)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var missing = Permissions.All
+            .Where(kvp => !existing.Contains(kvp.Key))
+            .Select(kvp => new Permission { Code = kvp.Key, Description = kvp.Value })
+            .ToList();
+
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        _db.Permissions.AddRange(missing);
+        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        _logger.LogInformation("Seeded {PermissionCount} permissions.", missing.Count);
+    }
+
+    private async Task SeedSystemRolesAsync(CancellationToken ct)
+    {
+        // System roles have TenantId null, so the Role query filter admits them for every
+        // tenant. IgnoreQueryFilters keeps the seeder correct even with no tenant resolved.
+        var existingRoles = await _db.Roles
+            .IgnoreQueryFilters()
+            .Where(r => r.TenantId == null)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        foreach (var roleName in SystemRoles.All)
+        {
+            if (existingRoles.All(r => r.Name != roleName))
+            {
+                _db.Roles.Add(new Role
+                {
+                    TenantId = null,
+                    Name = roleName,
+                    Description = $"System role: {roleName}",
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        var roles = await _db.Roles
+            .IgnoreQueryFilters()
+            .Where(r => r.TenantId == null)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var permissions = await _db.Permissions.ToDictionaryAsync(p => p.Code, p => p.Id, ct)
+            .ConfigureAwait(false);
+
+        var existingGrants = await _db.RolePermissions
+            .Select(rp => new { rp.RoleId, rp.PermissionId })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var grantSet = existingGrants.Select(g => (g.RoleId, g.PermissionId)).ToHashSet();
+        var added = 0;
+
+        foreach (var (roleName, codes) in Permissions.SystemRoleGrants)
+        {
+            var role = roles.FirstOrDefault(r => r.Name == roleName);
+
+            if (role is null)
+            {
+                continue;
+            }
+
+            foreach (var code in codes)
+            {
+                if (!permissions.TryGetValue(code, out var permissionId))
+                {
+                    continue;
+                }
+
+                if (grantSet.Add((role.Id, permissionId)))
+                {
+                    _db.RolePermissions.Add(new RolePermission
+                    {
+                        RoleId = role.Id,
+                        PermissionId = permissionId,
+                    });
+                    added++;
+                }
+            }
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            _logger.LogInformation("Seeded {GrantCount} role-permission grants.", added);
+        }
+    }
+
+    private async Task SeedDevelopmentFixtureAsync(CancellationToken ct)
+    {
+        var nihon = await EnsureTenantAsync(NihonPublicId, NihonSlug, "Nihon Motors", "JPY", "JP", ct)
+            .ConfigureAwait(false);
+
+        var karachi = await EnsureTenantAsync(
+                KarachiPublicId, KarachiSlug, "Karachi Auto Imports", "USD", "PK", ct)
+            .ConfigureAwait(false);
+
+        var roles = await _db.Roles
+            .IgnoreQueryFilters()
+            .Where(r => r.TenantId == null)
+            .ToDictionaryAsync(r => r.Name, r => r.Id, ct)
+            .ConfigureAwait(false);
+
+        // The last two users are the point of this fixture. Without a user who belongs to
+        // two tenants, and one suspended in only one of them, decision D2's multi-tenant
+        // identity is untested (criteria C5, C8, E6).
+        await EnsureUserAsync("owner@nihon-motors.test", "Aiko", "Tanaka",
+            [(nihon, SystemRoles.TenantOwner, MembershipStatus.Active)], roles, ct).ConfigureAwait(false);
+
+        await EnsureUserAsync("sales@nihon-motors.test", "Kenji", "Sato",
+            [(nihon, SystemRoles.Salesperson, MembershipStatus.Active)], roles, ct).ConfigureAwait(false);
+
+        await EnsureUserAsync("readonly@nihon-motors.test", "Mei", "Kobayashi",
+            [(nihon, SystemRoles.ReadOnly, MembershipStatus.Active)], roles, ct).ConfigureAwait(false);
+
+        await EnsureUserAsync("owner@karachi-auto.test", "Bilal", "Ahmed",
+            [(karachi, SystemRoles.TenantOwner, MembershipStatus.Active)], roles, ct).ConfigureAwait(false);
+
+        await EnsureUserAsync("multi@example.test", "Sara", "Khan",
+            [
+                (nihon, SystemRoles.Admin, MembershipStatus.Active),
+                (karachi, SystemRoles.ReadOnly, MembershipStatus.Active),
+            ], roles, ct).ConfigureAwait(false);
+
+        await EnsureUserAsync("suspended@example.test", "Omar", "Farooq",
+            [
+                (nihon, SystemRoles.Salesperson, MembershipStatus.Active),
+                (karachi, SystemRoles.Salesperson, MembershipStatus.Suspended),
+            ], roles, ct).ConfigureAwait(false);
+    }
+
+    private async Task<Tenant> EnsureTenantAsync(
+        Guid publicId, string slug, string name, string currency, string country, CancellationToken ct)
+    {
+        var tenant = await _db.Tenants.FirstOrDefaultAsync(t => t.Slug == slug, ct).ConfigureAwait(false);
+
+        if (tenant is not null)
+        {
+            return tenant;
+        }
+
+        tenant = new Tenant
+        {
+            PublicId = publicId,
+            Slug = slug,
+            Name = name,
+            Status = TenantStatus.Active,
+            DefaultCurrencyCode = currency,
+            DefaultCountryCode = country,
+        };
+
+        _db.Tenants.Add(tenant);
+        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        _logger.LogInformation("Seeded tenant {TenantSlug}.", slug);
+
+        return tenant;
+    }
+
+    private async Task EnsureUserAsync(
+        string email,
+        string firstName,
+        string lastName,
+        IReadOnlyList<(Tenant Tenant, string RoleName, MembershipStatus Status)> memberships,
+        IReadOnlyDictionary<string, long> roles,
+        CancellationToken ct)
+    {
+        var normalisedEmail = email.ToLowerInvariant();
+
+        var user = await _db.Users
+            .FirstOrDefaultAsync(u => u.Email == normalisedEmail, ct)
+            .ConfigureAwait(false);
+
+        if (user is null)
+        {
+            user = new User
+            {
+                PublicId = Guid.NewGuid(),
+                Email = normalisedEmail,
+                FirstName = firstName,
+                LastName = lastName,
+                Status = UserStatus.Active,
+                PasswordHash = _passwordHasher.Hash(DevelopmentPassword),
+            };
+
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        foreach (var (tenant, roleName, status) in memberships)
+        {
+            var membership = await _db.TenantUsers
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(m => m.TenantId == tenant.Id && m.UserId == user.Id, ct)
+                .ConfigureAwait(false);
+
+            if (membership is null)
+            {
+                _db.TenantUsers.Add(new TenantUser
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    MembershipStatus = status,
+                    JoinedAtUtc = status == MembershipStatus.Active ? _clock.UtcNow : null,
+                });
+            }
+
+            if (roles.TryGetValue(roleName, out var roleId))
+            {
+                var hasRole = await _db.UserRoles
+                    .IgnoreQueryFilters()
+                    .AnyAsync(ur => ur.UserId == user.Id && ur.RoleId == roleId && ur.TenantId == tenant.Id, ct)
+                    .ConfigureAwait(false);
+
+                if (!hasRole)
+                {
+                    _db.UserRoles.Add(new UserRole
+                    {
+                        UserId = user.Id,
+                        RoleId = roleId,
+                        TenantId = tenant.Id,
+                    });
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Password for every seeded development account. Documented in the README (criterion K4)
+    /// and only ever created outside Production.
+    /// </summary>
+    public const string DevelopmentPassword = "Dev_Passw0rd!";
+}

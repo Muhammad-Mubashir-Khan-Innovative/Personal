@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Domain has no package references by design.
+
+    Master prompt section 5: business logic must never call vendor SDKs directly.
+    Acceptance criterion H6: no vendor SDK type appears in Application or Domain.
+    Keeping this file empty of PackageReference elements is what enforces that.
+  -->
+
+</Project>

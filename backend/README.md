@@ -1,0 +1,174 @@
+# Car Dealer SaaS — Backend (Phase 0)
+
+Foundation for the multi-tenant dealer platform: tenancy, authentication, authorization,
+auditing, and the infrastructure abstractions the later phases build on.
+
+**Phase 0 ships no frontend.** Under [decision D10](../docs/spec/02-decisions.md#d10--phase-0-is-backend-only-swagger-is-the-test-surface)
+the OpenAPI page and the test suite are the verification surface. The React application
+arrives in Phase 0.5 with the first vertical slice.
+
+Specifications live in [`docs/spec/`](../docs/spec/). The checklist this phase is signed off
+against is [`06-phase-0-acceptance.md`](../docs/spec/06-phase-0-acceptance.md).
+
+---
+
+## Prerequisites
+
+- .NET SDK 8.0
+- Docker (for SQL Server and Redis)
+
+## First run
+
+```bash
+cd backend
+docker compose up -d --build
+```
+
+Then open **<http://localhost:5080/swagger>**.
+
+On startup the API applies migrations and seeds reference data plus, outside Production, the
+development fixture below.
+
+### Running the API from the CLI instead
+
+Useful when you want to attach a debugger. Start the dependencies only:
+
+```bash
+docker compose up -d sqlserver redis
+dotnet run --project src/CarDealer.Api
+```
+
+## Logging in
+
+Every seeded account uses the password **`Dev_Passw0rd!`**. These accounts are created only
+outside Production.
+
+| Email | Tenants | Role |
+| --- | --- | --- |
+| `owner@nihon-motors.test` | nihon-motors | TenantOwner |
+| `sales@nihon-motors.test` | nihon-motors | Salesperson |
+| `readonly@nihon-motors.test` | nihon-motors | ReadOnly |
+| `owner@karachi-auto.test` | karachi-auto | TenantOwner |
+| `multi@example.test` | **both** | Admin in nihon-motors, ReadOnly in karachi-auto |
+| `suspended@example.test` | **both** | Active in nihon-motors, **Suspended** in karachi-auto |
+
+The last two exist to make multi-tenant identity testable at all: `multi@example.test` proves
+permissions resolve per tenant rather than globally, and `suspended@example.test` proves a
+suspension in one tenant does not lock the user out of another.
+
+In Swagger:
+
+1. `POST /api/v1/auth/login` with `{"email": "...", "password": "Dev_Passw0rd!"}`.
+   A user in several tenants gets `requiresTenantSelection: true` and the list of choices —
+   call again including `tenantSlug`.
+2. Click **Authorize** and paste the `accessToken` (no `Bearer ` prefix).
+3. `POST /api/v1/auth/switch-tenant` moves to another tenant; it issues a **new** token,
+   because a token is scoped to exactly one tenant.
+
+## Environment variables
+
+Configuration binds with `__` as the section separator, so `ConnectionStrings__Default`
+overrides `ConnectionStrings:Default`.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `ConnectionStrings__Default` | yes | SQL Server connection string |
+| `ConnectionStrings__Redis` | outside Development | Redis connection. **Absent outside Development is a startup failure** — the in-memory fallback is development-only, and silently degrading in production would look healthy while losing every cache entry per instance |
+| `Jwt__SigningKey` | yes | Token signing key, minimum 32 characters. Never commit it |
+| `Jwt__Issuer` / `Jwt__Audience` | no | Default to `cardealer-api` / `cardealer-client` |
+| `Jwt__AccessTokenMinutes` | no | Default 15 |
+| `Jwt__RefreshTokenDays` | no | Default 14 |
+| `RateLimits__Auth__PermitLimit` | no | Auth requests per window per IP. Default 10; Development uses 200 |
+| `RateLimits__Auth__WindowSeconds` | no | Default 60 |
+| `Storage__Local__RootPath` | no | Local file storage root. Default `./storage` |
+| `ASPNETCORE_ENVIRONMENT` | no | `Development`, `Staging`, `Production` |
+
+Rate limiting partitions by remote IP, so a whole office behind one NAT address shares a
+bucket. Deployments behind a proxy should raise the limit and rely on the proxy's own.
+
+## Migrations
+
+```bash
+export CARDEALER_MIGRATIONS_CONNECTION='Server=localhost,1433;Database=CarDealer;User Id=sa;Password=Dev_L0cal_Pass!2024;TrustServerCertificate=True;Encrypt=False'
+
+# Create a migration after changing an entity or configuration
+dotnet ef migrations add <Name> \
+  --project src/CarDealer.Infrastructure \
+  --startup-project src/CarDealer.Api \
+  --output-dir Persistence/Migrations
+
+# Apply
+dotnet ef database update --project src/CarDealer.Infrastructure --startup-project src/CarDealer.Api
+
+# Confirm the model and the migrations agree (CI runs this)
+dotnet ef migrations has-pending-model-changes --project src/CarDealer.Infrastructure --startup-project src/CarDealer.Api
+```
+
+The API applies pending migrations on startup, so `database update` is only needed when
+working without running the API.
+
+## Tests
+
+```bash
+docker compose up -d sqlserver     # integration tests need a real SQL Server
+dotnet test
+```
+
+Integration tests deliberately do **not** use the EF in-memory provider: it ignores unique
+indexes, filtered indexes and persisted computed columns, and the tenant-scope uniqueness this
+phase depends on is built from exactly those. Each test class provisions its own database and
+drops it afterwards.
+
+Override the server with `CARDEALER_TEST_SQL_HOST` and `CARDEALER_TEST_SQL_PASSWORD`.
+
+## Project layout
+
+```
+src/
+  CarDealer.Domain          entities and enums; no package references by design
+  CarDealer.Application     abstractions and contracts; no vendor SDKs
+  CarDealer.Infrastructure  EF Core, auth, caching, storage, jobs
+  CarDealer.Integrations    external provider adapters (empty until Phase 0.5)
+  CarDealer.Api             HTTP surface, middleware, composition root
+  CarDealer.Worker          dedicated background job processor
+tests/
+  CarDealer.UnitTests       pure logic, no database
+  CarDealer.IntegrationTests real SQL Server, full HTTP pipeline
+```
+
+`Domain` and `Application` reference no vendor SDK, which is what keeps master prompt §5's
+"business logic must never call vendor SDKs directly" true rather than aspirational.
+
+## How tenancy works
+
+- A tenant is resolved **only** from the validated access token. A tenant id in a header,
+  query string or body is ignored.
+- EF Core global query filters scope every tenant-owned entity. When no tenant is resolved the
+  comparison value is `0`, which matches nothing — an unresolved request sees no data rather
+  than all of it.
+- The auth path uses `IgnoreQueryFilters()` in a few explicit places (membership lookup,
+  permission resolution) because it runs before a tenant exists. Those are scoped by an
+  explicit `UserId`/`TenantId` predicate and covered by tests.
+- Visibility is not mutability: system roles are readable by every tenant but writable by
+  none. Phase 0.5's global vehicle catalog uses the same rule.
+
+## Troubleshooting
+
+**`Login failed for user 'sa'` / `Cannot open database`** — SQL Server is still starting.
+`docker compose ps` should show `sqlserver` as healthy; the first cold start takes ~30s.
+
+**API exits at startup with `No Redis connection string is configured`** — expected outside
+Development. Set `ConnectionStrings__Redis`.
+
+**`OptionsValidationException` for `JwtOptions`** — `Jwt__SigningKey` is missing or shorter
+than 32 characters.
+
+**429 from `/api/v1/auth/*`** — the rate limiter. Wait for the window or raise
+`RateLimits__Auth__PermitLimit`.
+
+**401 on an endpoint that should work** — the access token is 15 minutes by default. Use
+`POST /api/v1/auth/refresh`. Note that presenting an already-rotated refresh token revokes the
+entire chain by design, so you will need to log in again.
+
+**Port 1433 or 5080 already in use** — stop the conflicting container
+(`docker rm -f cardealer-sql`) or change the published port in `docker-compose.yml`.
