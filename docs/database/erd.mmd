@@ -1,0 +1,489 @@
+%% Car Dealer SaaS - Entity Relationship Diagram
+
+%% Required by docs/spec/01-sql-schema.md section 12, which mandates that this file stay
+%% synchronized with the implementation.
+
+%% Reflects the base schema (docs/spec/01-sql-schema.md) PLUS the accepted decisions in
+%% docs/spec/02-decisions.md and the changes in docs/spec/04-schema-delta.md.
+
+%% Attribute lists are representative, not exhaustive: primary keys, foreign keys and the
+%% columns that carry a decision. Full column lists live in 01-sql-schema.md and
+%% 04-schema-delta.md.
+
+%% Notation note: TenantId is NULLABLE on VEHICLES, VEHICLE_LISTINGS and VEHICLE_IMAGES.
+%% NULL means the row belongs to the global catalog (decision D1). Those relationships are
+%% drawn as optional-to-many (|o--o{).
+
+erDiagram
+
+    %% ---------------------------------------------------------------
+    %% Tenancy and identity  (D2)
+    %% ---------------------------------------------------------------
+
+    TENANTS {
+        bigint Id PK
+        uniqueidentifier PublicId
+        nvarchar Name
+        nvarchar Slug UK
+        nvarchar Status
+        char DefaultCurrencyCode
+        char DefaultCountryCode
+    }
+
+    USERS {
+        bigint Id PK
+        uniqueidentifier PublicId
+        nvarchar Email UK "globally unique - identity spans tenants"
+        nvarchar PasswordHash
+        nvarchar Status "global; NOT for per-tenant suspension"
+        datetime2 LastLoginAtUtc
+    }
+
+    TENANT_USERS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint UserId FK
+        tinyint MembershipStatus "Invited Active Suspended"
+        bigint InvitedByUserId FK
+        datetime2 JoinedAtUtc
+    }
+
+    ROLES {
+        int Id PK
+        bigint TenantId FK "NULL = system role"
+        int TenantScope "computed persisted"
+        nvarchar Name "unique per TenantScope"
+        nvarchar Description
+    }
+
+    USER_ROLES {
+        bigint UserId FK
+        int RoleId FK
+        bigint TenantId FK
+    }
+
+    PERMISSIONS {
+        int Id PK
+        nvarchar Code UK "e.g. vehicles.read"
+        nvarchar Description
+    }
+
+    ROLE_PERMISSIONS {
+        int RoleId FK
+        int PermissionId FK
+    }
+
+    REFRESH_TOKENS {
+        bigint Id PK
+        bigint UserId FK
+        varbinary TokenHash UK "SHA-256; never the raw token"
+        datetime2 ExpiresAtUtc
+        datetime2 RevokedAtUtc
+        bigint ReplacedByTokenId FK "rotation chain"
+    }
+
+    %% ---------------------------------------------------------------
+    %% CRM
+    %% ---------------------------------------------------------------
+
+    CUSTOMERS {
+        bigint Id PK
+        bigint TenantId FK
+        uniqueidentifier PublicId
+        nvarchar Phone
+        nvarchar Email
+        char CountryCode
+        nvarchar PreferredLanguage
+        nvarchar Status
+        nvarchar LeadSource
+        bigint AssignedUserId FK "must be Active in TenantUsers"
+    }
+
+    CUSTOMER_REQUIREMENTS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint CustomerId FK
+        int MinYear
+        int MaxYear
+        decimal MinPrice
+        decimal MaxPrice
+        char CurrencyCode
+        char DestinationCountryCode
+        nvarchar RawRequirementText
+        nvarchar Status
+    }
+
+    CONVERSATIONS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint CustomerId FK
+        nvarchar Channel
+        nvarchar ExternalConversationId
+        bigint AssignedUserId FK
+        datetime2 LastMessageAtUtc
+        datetime2 LastInboundMessageAtUtc "open item O7 - messaging window"
+    }
+
+    MESSAGES {
+        bigint Id PK
+        bigint TenantId FK
+        bigint ConversationId FK
+        nvarchar ExternalMessageId
+        nvarchar Direction
+        nvarchar MessageType
+        nvarchar Body
+        nvarchar MediaJson
+        nvarchar ProviderStatus
+        datetime2 SentAtUtc
+    }
+
+    TASKS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint CustomerId FK
+        bigint ConversationId FK
+        bigint AssignedUserId FK
+        datetime2 DueAtUtc
+        nvarchar Priority
+        nvarchar Status
+    }
+
+    %% ---------------------------------------------------------------
+    %% Vehicle sources
+    %% ---------------------------------------------------------------
+
+    VEHICLE_SOURCES {
+        bigint Id PK
+        bigint TenantId FK "NULL = shared source"
+        bigint TenantScope "computed persisted"
+        nvarchar Name
+        nvarchar Code "unique per TenantScope"
+        nvarchar ProviderType
+        bit IsShared
+        bit IsActive
+    }
+
+    VEHICLE_SOURCE_CONFIGURATIONS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint VehicleSourceId FK
+        nvarchar ConfigurationJson
+        nvarchar CredentialReference "never the secret itself"
+        bit SyncEnabled
+        int SyncIntervalMinutes
+        datetime2 LastSuccessAtUtc
+        datetime2 LastFailureAtUtc
+    }
+
+    %% ---------------------------------------------------------------
+    %% Canonical vehicles  (D1 D3 D5)
+    %% ---------------------------------------------------------------
+
+    VEHICLES {
+        bigint Id PK
+        bigint TenantId FK "NULL = global catalog"
+        bigint TenantScope "computed persisted"
+        uniqueidentifier PublicId
+        int MakeId FK "normalized"
+        int ModelId FK "normalized"
+        nvarchar Make "raw source value"
+        nvarchar Model "raw source value"
+        int ModelYear
+        date RegistrationDate "import age rules key on this"
+        tinyint SteeringSide "RHD LHD"
+        nvarchar AuctionGrade
+        nvarchar InteriorGrade
+        decimal InspectionScore
+        nvarchar LotNumber "strong dedup identifier"
+        nvarchar Vin
+        nvarchar ChassisNumber
+        nvarchar CanonicalHash "indexed; NULL never matches"
+        tinyint CanonicalHashSource "Vin Chassis Lot"
+        tinyint Status
+    }
+
+    TENANT_VEHICLES {
+        bigint Id PK
+        bigint TenantId FK
+        bigint VehicleId FK
+        decimal TenantPrice
+        char TenantCurrencyCode
+        tinyint TenantStatus
+        bit IsHidden
+        bit IsPinned
+        nvarchar InternalNotes
+    }
+
+    VEHICLE_LISTINGS {
+        bigint Id PK
+        bigint TenantId FK "NULL = global catalog"
+        bigint TenantScope "computed persisted"
+        bigint VehicleId FK
+        bigint VehicleSourceId FK
+        nvarchar ExternalListingId "unique per scope and source"
+        nvarchar SourceUrl
+        decimal Price
+        char CurrencyCode
+        tinyint PriceType "EXW FOB CFR CIF"
+        decimal PriceBaseCurrency "denormalized for range search"
+        char BaseCurrencyCode
+        bigint ExchangeRateId FK "pins the rate used"
+        decimal FreightCost
+        char FreightCurrencyCode
+        nvarchar PortOfLoading
+        nvarchar PortOfDischarge
+        nvarchar RawPayload
+        datetime2 FirstSeenAtUtc
+        datetime2 LastSeenAtUtc
+        bit IsActive
+    }
+
+    VEHICLE_IMAGES {
+        bigint Id PK
+        bigint TenantId FK "NULL = global catalog"
+        bigint VehicleId FK
+        nvarchar ImageUrl "open item O1 - split SourceUrl StorageReference"
+        int SortOrder
+        nvarchar ImageType
+        nvarchar SourceImageId
+    }
+
+    VEHICLE_LISTING_IMAGES {
+        bigint VehicleListingId FK
+        bigint VehicleImageId FK
+    }
+
+    %% ---------------------------------------------------------------
+    %% Deduplication  (D3)
+    %% ---------------------------------------------------------------
+
+    VEHICLE_MATCH_CANDIDATES {
+        bigint Id PK
+        bigint VehicleId FK "lower id of the pair"
+        bigint CandidateVehicleId FK "higher id of the pair"
+        decimal Score
+        nvarchar SignalsJson "why this pair was suggested"
+        tinyint Status "Pending Merged Rejected"
+        bigint ReviewedByUserId FK
+        datetime2 ReviewedAtUtc
+    }
+
+    VEHICLE_MERGE_HISTORY {
+        bigint Id PK
+        bigint SurvivingVehicleId FK
+        bigint MergedVehicleId FK
+        bigint MergedByUserId FK "NULL = automatic strong-ID merge"
+        nvarchar ReasonsJson
+        nvarchar RepointedListingIdsJson "enables reversal"
+        datetime2 MergedAtUtc
+        datetime2 RevertedAtUtc
+    }
+
+    %% ---------------------------------------------------------------
+    %% Reference data  (D5 D6)
+    %% ---------------------------------------------------------------
+
+    MAKES {
+        int Id PK
+        nvarchar Name UK
+        char CountryCode
+        bit IsActive
+    }
+
+    MODELS {
+        int Id PK
+        int MakeId FK
+        nvarchar Name "unique per MakeId"
+        bit IsActive
+    }
+
+    SOURCE_MAKE_MODEL_ALIASES {
+        bigint Id PK
+        bigint VehicleSourceId FK "NULL = applies to all sources"
+        nvarchar RawMake "e.g. TOYOTA toyota kana"
+        nvarchar RawModel
+        int MakeId FK
+        int ModelId FK
+    }
+
+    EXCHANGE_RATES {
+        bigint Id PK
+        char BaseCurrencyCode
+        char QuoteCurrencyCode
+        decimal Rate
+        datetime2 AsOfUtc
+        nvarchar Source
+    }
+
+    %% ---------------------------------------------------------------
+    %% AI and recommendations
+    %% ---------------------------------------------------------------
+
+    VEHICLE_RECOMMENDATIONS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint CustomerRequirementId FK
+        bigint VehicleId FK
+        decimal Score
+        int Rank
+        nvarchar ReasonsJson
+        nvarchar RecommendationSource
+        bigint AIRequestId FK
+        nvarchar Status
+    }
+
+    AI_REQUESTS {
+        bigint Id PK
+        bigint TenantId FK
+        nvarchar Provider
+        nvarchar Model
+        nvarchar Operation
+        nvarchar InputHash
+        nvarchar TokenUsageJson
+        decimal Cost
+        nvarchar Status
+    }
+
+    %% ---------------------------------------------------------------
+    %% Imports, sync, integrations, audit
+    %% ---------------------------------------------------------------
+
+    IMPORTS {
+        bigint Id PK
+        bigint TenantId FK
+        nvarchar ImportType
+        nvarchar FileName
+        nvarchar StorageReference
+        int TotalRows
+        int SucceededRows
+        int FailedRows
+        bigint CreatedByUserId FK
+    }
+
+    IMPORT_ROWS {
+        bigint Id PK
+        bigint ImportId FK
+        int RowNumber
+        nvarchar Status
+        nvarchar RawDataJson
+        nvarchar ErrorMessage
+        bigint EntityId
+    }
+
+    SYNC_JOBS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint VehicleSourceId FK
+        nvarchar JobType
+        nvarchar Status
+        int TotalRecords
+        int CreatedRecords
+        int UpdatedRecords
+        int FailedRecords
+        datetime2 StartedAtUtc
+        datetime2 CompletedAtUtc
+    }
+
+    SYNC_JOB_ITEMS {
+        bigint Id PK
+        bigint SyncJobId FK
+        nvarchar ExternalListingId
+        nvarchar Status
+        nvarchar ErrorMessage
+        datetime2 ProcessedAtUtc
+    }
+
+    INTEGRATIONS {
+        bigint Id PK
+        bigint TenantId FK
+        nvarchar Provider
+        nvarchar IntegrationType
+        nvarchar Status
+        nvarchar ConfigurationReference
+        datetime2 LastConnectedAtUtc
+    }
+
+    AUDIT_LOGS {
+        bigint Id PK
+        bigint TenantId FK
+        bigint UserId FK
+        nvarchar Action
+        nvarchar EntityType
+        nvarchar EntityId
+        nvarchar CorrelationId
+        nvarchar IpAddress
+        nvarchar MetadataJson
+    }
+
+    %% ===============================================================
+    %% Relationships
+    %% ===============================================================
+
+    %% Tenancy and identity
+    TENANTS ||--o{ TENANT_USERS : "has members"
+    USERS ||--o{ TENANT_USERS : "belongs to"
+    USERS ||--o{ REFRESH_TOKENS : "issues"
+    REFRESH_TOKENS |o--o| REFRESH_TOKENS : "replaced by"
+    USERS ||--o{ USER_ROLES : "holds"
+    ROLES ||--o{ USER_ROLES : "granted via"
+    TENANTS ||--o{ USER_ROLES : "scopes"
+    TENANTS |o--o{ ROLES : "defines custom"
+    ROLES ||--o{ ROLE_PERMISSIONS : "grants"
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : "granted by"
+
+    %% CRM
+    TENANTS ||--o{ CUSTOMERS : "owns"
+    USERS |o--o{ CUSTOMERS : "assigned to"
+    CUSTOMERS ||--o{ CUSTOMER_REQUIREMENTS : "has"
+    CUSTOMERS ||--o{ CONVERSATIONS : "has"
+    CONVERSATIONS ||--o{ MESSAGES : "contains"
+    TENANTS ||--o{ TASKS : "owns"
+    CUSTOMERS |o--o{ TASKS : "about"
+    CONVERSATIONS |o--o{ TASKS : "raised from"
+    USERS |o--o{ TASKS : "assigned to"
+
+    %% Sources
+    TENANTS |o--o{ VEHICLE_SOURCES : "configures"
+    VEHICLE_SOURCES ||--o{ VEHICLE_SOURCE_CONFIGURATIONS : "configured by"
+    TENANTS ||--o{ VEHICLE_SOURCE_CONFIGURATIONS : "owns"
+    VEHICLE_SOURCES ||--o{ VEHICLE_LISTINGS : "supplies"
+    VEHICLE_SOURCES ||--o{ SYNC_JOBS : "runs"
+    VEHICLE_SOURCES |o--o{ SOURCE_MAKE_MODEL_ALIASES : "maps"
+
+    %% Vehicles
+    TENANTS |o--o{ VEHICLES : "owns private"
+    VEHICLES ||--o{ VEHICLE_LISTINGS : "offered as"
+    VEHICLES ||--o{ VEHICLE_IMAGES : "pictured by"
+    VEHICLES ||--o{ TENANT_VEHICLES : "overlaid by"
+    TENANTS ||--o{ TENANT_VEHICLES : "owns overlay"
+    VEHICLE_LISTINGS ||--o{ VEHICLE_LISTING_IMAGES : "shows"
+    VEHICLE_IMAGES ||--o{ VEHICLE_LISTING_IMAGES : "shown in"
+
+    %% Dedup
+    VEHICLES ||--o{ VEHICLE_MATCH_CANDIDATES : "suggested against"
+    VEHICLES ||--o{ VEHICLE_MERGE_HISTORY : "survived as"
+    USERS |o--o{ VEHICLE_MATCH_CANDIDATES : "reviewed by"
+
+    %% Reference data
+    MAKES ||--o{ MODELS : "has"
+    MAKES |o--o{ VEHICLES : "normalizes"
+    MODELS |o--o{ VEHICLES : "normalizes"
+    MAKES |o--o{ SOURCE_MAKE_MODEL_ALIASES : "aliased by"
+    MODELS |o--o{ SOURCE_MAKE_MODEL_ALIASES : "aliased by"
+    EXCHANGE_RATES |o--o{ VEHICLE_LISTINGS : "pins rate for"
+
+    %% AI
+    TENANTS ||--o{ AI_REQUESTS : "incurs"
+    CUSTOMER_REQUIREMENTS ||--o{ VEHICLE_RECOMMENDATIONS : "produces"
+    VEHICLES ||--o{ VEHICLE_RECOMMENDATIONS : "recommended as"
+    AI_REQUESTS |o--o{ VEHICLE_RECOMMENDATIONS : "explains"
+
+    %% Imports, sync, integrations, audit
+    TENANTS ||--o{ IMPORTS : "owns"
+    IMPORTS ||--o{ IMPORT_ROWS : "contains"
+    USERS |o--o{ IMPORTS : "started by"
+    TENANTS ||--o{ SYNC_JOBS : "owns"
+    SYNC_JOBS ||--o{ SYNC_JOB_ITEMS : "contains"
+    TENANTS ||--o{ INTEGRATIONS : "owns"
+    TENANTS |o--o{ AUDIT_LOGS : "generates"
+    USERS |o--o{ AUDIT_LOGS : "acted in"
