@@ -226,6 +226,13 @@ seed is idempotent across restarts (B5), Production refuses to start without Red
 OpenAPI document exposes 13 operations all carrying responses and a Bearer scheme (F7), and no
 password, connection string, signing key or refresh token appears in any log (G6).
 
+**Container images.** Both Dockerfiles build, and the published API image was run against SQL
+Server: it migrated, seeded, answered `/health`, served a login, and runs as the non-root `app`
+user (uid 1654). The build had to be run with this sandbox's TLS-intercepting proxy CA injected,
+because NuGet is otherwise unreachable from inside a container here — that injection is a local
+workaround and is deliberately **not** in the committed Dockerfile, which needs no such thing on
+a normal network.
+
 **Two items could not be fully verified in the development environment**, and both need
 checking on your machine:
 
